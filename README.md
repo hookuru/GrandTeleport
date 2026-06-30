@@ -117,3 +117,7 @@ Premium plan, and are included only for use as part of Grand Teleport.
 
 Do not extract, redistribute, sell, sublicense, or reuse the bundled custom
 sound files separately.
+
+## Credits
+
+This mod was coded with Codex, and playtesting and supervision were handled by hookuru_.
