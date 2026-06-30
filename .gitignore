@@ -1,0 +1,32 @@
+# Gradle and build outputs
+.gradle/
+build/
+out/
+
+# Packaged release artifacts
+staged-jars/
+
+# Local Codex and agent state
+.codex/
+.agents/
+
+# Local investigation outputs
+tmp/
+work/
+outputs/
+
+# Temporary media/contact sheets generated during development
+tmp_*.jpg
+tmp_*.png
+*.tmp
+
+# IDE/editor files
+.idea/
+.vscode/
+*.iml
+
+# OS files
+Thumbs.db
+.DS_Store
+node_modules/
+tools/node_modules/

@@ -1,0 +1,26 @@
+{
+  "required": true,
+  "package": "dev.codex.gtaliketeleport.mixin",
+  "plugin": "dev.codex.gtaliketeleport.mixin.GtaLikeTeleportMixinPlugin",
+  "compatibilityLevel": "${mixin_compatibility_level}",
+  "mixins": [
+    "ServerPlayerMixin",
+    "WaystonesWarpPlateBlockEntityMixin"
+  ],
+  "client": [
+    "CameraAccessor",
+    "CameraMixin",
+    "ClientPacketListenerMixin",
+    "ConnectionMixin",
+    "EntityRendererMixin",
+    "GameRendererMixin",
+    "JourneyMapClientNetworkDispatcherMixin",
+    "KeyboardInputMixin",
+    "MouseHandlerMixin",
+    "MinecraftMixin",
+    "VoxyClientMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

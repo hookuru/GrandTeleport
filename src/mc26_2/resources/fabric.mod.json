@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "gtalike_teleport",
+  "version": "${version}",
+  "name": "Grand Teleport",
+  "description": "Adds a cinematic teleport transition when the local player uses /tp or /teleport.",
+  "authors": [
+    "Codex"
+  ],
+  "contributors": [
+    "hookuru_"
+  ],
+  "icon": "assets/gtalike_teleport/icon.png",
+  "license": "Custom",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "dev.codex.gtaliketeleport.GtaLikeTeleportServer"
+    ],
+    "client": [
+      "dev.codex.gtaliketeleport.GtaLikeTeleportClient"
+    ],
+    "modmenu": [
+      "dev.codex.gtaliketeleport.GtaLikeTeleportModMenu"
+    ]
+  },
+  "mixins": [
+    "gtalike_teleport.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "minecraft": "${minecraft_version}",
+    "java": ">=${java_version}",
+    "fabric-api": "*"
+  }
+}
+

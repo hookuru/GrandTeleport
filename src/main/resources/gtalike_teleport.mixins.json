@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "package": "dev.codex.gtaliketeleport.mixin",
+  "compatibilityLevel": "${mixin_compatibility_level}",
+  "client": [
+    "CameraAccessor",
+    "CameraMixin",
+    "InGameHudMixin",
+    "KeyboardInputMixin",
+    "MouseMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

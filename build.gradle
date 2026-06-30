@@ -1,0 +1,481 @@
+plugins {
+    id 'fabric-loom' version '1.14.10'
+    id 'maven-publish'
+}
+
+def buildNumberFile = file("gradle.properties")
+def buildNumberPattern = ~/(?m)^build_number=(\d+)\s*$/
+def requestedBuildTasks = [
+        "build",
+        "assemble",
+        "jar",
+        "remapJar",
+        "publish",
+        "publishToMavenLocal",
+        "buildMcAll",
+        "buildMcAvailable",
+        "buildMc26All",
+        "buildMc1_20_1",
+        "buildMc1_21_1",
+        "buildMc1_21_11",
+        "buildMc26_1",
+        "buildMc26_1_1",
+        "buildMc26_1_2",
+        "buildMc26_2",
+        "jarMc1_20_1",
+        "jarMc1_21_1",
+        "jarMc1_21_11",
+        "jarMc26_1",
+        "jarMc26_1_1",
+        "jarMc26_1_2",
+        "jarMc26_2"
+]
+
+def shouldBumpBuildNumber = !project.hasProperty("noBuildNumberBump") && gradle.startParameter.taskNames.any { taskName ->
+    requestedBuildTasks.contains(taskName.tokenize(":").last())
+}
+
+def readBuildNumber = {
+    def matcher = buildNumberPattern.matcher(buildNumberFile.getText("UTF-8"))
+    if (!matcher.find()) {
+        throw new GradleException("Missing build_number in gradle.properties")
+    }
+
+    return matcher.group(1).toInteger()
+}
+
+def writeBuildNumber = { int buildNumber ->
+    def text = buildNumberFile.getText("UTF-8")
+    text = buildNumberPattern.matcher(text).replaceFirst("build_number=${buildNumber}")
+    buildNumberFile.setText(text, "UTF-8")
+}
+
+def buildNumber = readBuildNumber()
+if (shouldBumpBuildNumber && !gradle.startParameter.projectProperties.containsKey("build_number")) {
+    buildNumber += 1
+    writeBuildNumber(buildNumber)
+}
+
+def gtpLoomTarget = (project.findProperty("gtpLoomTarget") ?: "1.21.11").toString()
+def loomTargetConfigs = [
+        "1.20.1": [sourceDir: "mc1_20_1", instanceName: "1.20.1", javaVersion: 17, mappingSuffix: "1_20_1", loaderVersion: "0.16.9", fabricApiVersion: "0.92.2+1.20.1"],
+        "1.21.1": [sourceDir: "mc1_21_1", instanceName: "1.21.1", javaVersion: 21, mappingSuffix: "1_21_1", loaderVersion: "0.18.4", fabricApiVersion: "0.116.12+1.21.1"],
+        "1.21.11": [sourceDir: "mc1_21_11", instanceName: "1.21.11", javaVersion: 21, mappingSuffix: "1_21_11", loaderVersion: project.loader_version, fabricApiVersion: project.fabric_api_version]
+]
+def activeLoomConfig = loomTargetConfigs.get(gtpLoomTarget)
+if (activeLoomConfig == null) {
+    throw new GradleException("Unknown Loom target '${gtpLoomTarget}'. Known targets: ${loomTargetConfigs.keySet().join(', ')}")
+}
+def activeMinecraftVersion = gtpLoomTarget
+def activeLoomJavaVersion = activeLoomConfig.javaVersion as int
+def activeLoaderVersion = activeLoomConfig.loaderVersion.toString()
+def activeFabricApiVersion = activeLoomConfig.fabricApiVersion.toString()
+def resolvedModVersion = "build${gradle.startParameter.projectProperties.getOrDefault("build_number", buildNumber.toString())}"
+version = "${activeMinecraftVersion}-${resolvedModVersion}"
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    mavenCentral()
+}
+
+def localMainMappingsJar = file("${System.getProperty("user.home")}/.gradle/caches/fabric-loom/${activeMinecraftVersion}/loom.mappings.${activeLoomConfig.mappingSuffix}.layered+hash.2198-v2/mappings.jar")
+
+dependencies {
+    minecraft "com.mojang:minecraft:${activeMinecraftVersion}"
+    mappings(localMainMappingsJar.isFile() ? files(localMainMappingsJar) : loom.officialMojangMappings())
+    modImplementation "net.fabricmc:fabric-loader:${activeLoaderVersion}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${activeFabricApiVersion}"
+}
+
+sourceSets {
+    main {
+        java.srcDirs = ["src/${activeLoomConfig.sourceDir}/java"]
+        resources.srcDirs = ["src/${activeLoomConfig.sourceDir}/resources"]
+    }
+}
+def prismRoot = file("${System.getenv("APPDATA")}/PrismLauncher")
+def prismLibraries = fileTree("${prismRoot}/libraries") {
+    include "**/*.jar"
+}
+def minecraftTargets = [
+        [minecraftVersion: "1.20.1", taskSuffix: "1_20_1", instanceName: "1.20.1", sourceDir: "mc1_20_1", loaderVersion: "0.16.9", javaVersion: 17, includeInAggregates: false],
+        [minecraftVersion: "1.21.1", taskSuffix: "1_21_1", instanceName: "1.21.1", sourceDir: "mc1_21_1", loaderVersion: "0.18.4", javaVersion: 21, includeInAggregates: false],
+        [minecraftVersion: "26.1", taskSuffix: "26_1", instanceName: "26.1", sourceDir: "mc26_1", loaderVersion: "0.18.4", javaVersion: 25, includeInAggregates: true],
+        [minecraftVersion: "26.1.1", taskSuffix: "26_1_1", instanceName: "26.1.1", sourceDir: "mc26_1_1", loaderVersion: "0.18.4", javaVersion: 25, includeInAggregates: true],
+        [minecraftVersion: "26.1.2", taskSuffix: "26_1_2", instanceName: "26.1.2", sourceDir: "mc26_1_2", loaderVersion: "0.18.4", javaVersion: 25, includeInAggregates: true],
+        [minecraftVersion: "26.2", taskSuffix: "26_2", instanceName: "26.2", sourceDir: "mc26_2", loaderVersion: "0.19.3", javaVersion: 25, includeInAggregates: false]
+]
+
+def extraOptionalModInstances = [
+        "1.20.1": ["1.20.1(1)", "1.20.1(3)"],
+        "1.21.1": ["1.20.1(1)", "1.21.11_fabric", "1.21.11 kikaku", "1.21.11_fabric_sub"],
+        "1.21.11": ["1.21.11_fabric", "1.21.11 kikaku", "1.21.11_fabric_sub"],
+        "26.1.2": ["test26.1.2"]
+]
+
+def findNamedMinecraftJar = { String minecraftVersion ->
+    def mergedDir = file("${System.getProperty("user.home")}/.gradle/caches/fabric-loom/minecraftMaven/net/minecraft/minecraft-merged")
+    if (!mergedDir.isDirectory()) {
+        return null
+    }
+
+    def jars = fileTree(mergedDir) {
+        include "**/minecraft-merged-${minecraftVersion}-loom.mappings*.jar"
+        exclude "**/*intermediary*"
+    }.files.toList().sort { it.absolutePath }
+
+    return jars.isEmpty() ? null : jars.last()
+}
+
+def fabricApiSearchInstances = { String instanceName ->
+    def instances = [instanceName]
+    instances.addAll(extraOptionalModInstances.getOrDefault(instanceName, []))
+    return instances
+}
+
+def findFabricApiJar = { String instanceName ->
+    for (def candidate : fabricApiSearchInstances(instanceName)) {
+        def modDir = file("${prismRoot}/instances/${candidate}/minecraft/mods")
+        if (!modDir.isDirectory()) {
+            continue
+        }
+        def jars = fileTree(modDir) {
+            include "fabric-api*.jar"
+        }.files.toList().sort { it.name }
+        if (!jars.isEmpty()) {
+            return jars.last()
+        }
+    }
+
+    throw new GradleException("Missing Fabric API jar for ${instanceName}")
+}
+
+def findOptionalModJar = { String instanceName, String pattern ->
+    def modDir = file("${prismRoot}/instances/${instanceName}/minecraft/mods")
+    if (!modDir.isDirectory()) {
+        return null
+    }
+    def jars = fileTree(modDir) {
+        include pattern
+    }.files.toList().sort { it.name }
+
+    return jars.isEmpty() ? null : jars.last()
+}
+
+def findOptionalTargetModJar = { target, String pattern ->
+    def jar = findOptionalModJar(target.instanceName, pattern)
+    if (jar != null) {
+        return jar
+    }
+
+    def testInstanceName = "test${target.instanceName}"
+    jar = testInstanceName == target.instanceName ? null : findOptionalModJar(testInstanceName, pattern)
+    if (jar != null) {
+        return jar
+    }
+
+    for (def instanceName : extraOptionalModInstances.getOrDefault(target.instanceName, [])) {
+        jar = findOptionalModJar(instanceName, pattern)
+        if (jar != null) {
+            return jar
+        }
+    }
+
+    return null
+}
+
+def mainOptionalTarget = [instanceName: activeLoomConfig.instanceName]
+if (activeLoomConfig.sourceDir == "mc1_21_11") {
+    dependencies {
+        modCompileOnly files({
+            def jar = findOptionalTargetModJar(mainOptionalTarget, "sodium*.jar*")
+            return jar == null ? [] : [jar]
+        })
+    }
+}
+
+dependencies {
+    modCompileOnly files({
+        def jar = findOptionalTargetModJar(mainOptionalTarget, "modmenu*.jar*")
+        return jar == null ? [] : [jar]
+    })
+
+    modCompileOnly files({
+        def jar = findOptionalTargetModJar(mainOptionalTarget, "waystones*.jar*")
+        return jar == null ? [] : [jar]
+    })
+    modCompileOnly files({
+        def jar = findOptionalTargetModJar(mainOptionalTarget, "balm*.jar*")
+        return jar == null ? [] : [jar]
+    })
+}
+def hasFabricApiJar = { String instanceName ->
+    for (def candidate : fabricApiSearchInstances(instanceName)) {
+        def modDir = file("${prismRoot}/instances/${candidate}/minecraft/mods")
+        if (!modDir.isDirectory()) {
+            continue
+        }
+        if (!fileTree(modDir) {
+            include "fabric-api*.jar"
+        }.files.isEmpty()) {
+            return true
+        }
+    }
+    return false
+}
+
+def isTargetAvailable = { target ->
+    def minecraftClientJar = file("${prismRoot}/libraries/com/mojang/minecraft/${target.minecraftVersion}/minecraft-${target.minecraftVersion}-client.jar")
+    def fabricLoaderJar = file("${prismRoot}/libraries/net/fabricmc/fabric-loader/${target.loaderVersion}/fabric-loader-${target.loaderVersion}.jar")
+    return (minecraftClientJar.isFile() || findNamedMinecraftJar(target.minecraftVersion) != null) && fabricLoaderJar.isFile() && hasFabricApiJar(target.instanceName)
+}
+
+def versionedJarTasks = []
+def availableJarTasks = []
+def mc26JarTasks = []
+minecraftTargets.each { target ->
+    def minecraftVersion = target.minecraftVersion
+    def taskSuffix = target.taskSuffix
+    def sourceDir = target.sourceDir
+    def targetLoaderVersion = target.loaderVersion
+    def targetJavaVersion = target.javaVersion as int
+    def minecraftClientJar = file("${prismRoot}/libraries/com/mojang/minecraft/${minecraftVersion}/minecraft-${minecraftVersion}-client.jar")
+    def namedMinecraftJar = findNamedMinecraftJar(minecraftVersion)
+    def fabricLoaderJar = file("${prismRoot}/libraries/net/fabricmc/fabric-loader/${targetLoaderVersion}/fabric-loader-${targetLoaderVersion}.jar")
+    def extractedFabricApiDir = layout.buildDirectory.dir("mc/${minecraftVersion}/fabric-api")
+    def classesDir = layout.buildDirectory.dir("classes/java/mc/${minecraftVersion}")
+    def resourcesDir = layout.buildDirectory.dir("resources/mc/${minecraftVersion}")
+    def targetVersion = "${minecraftVersion}-${resolvedModVersion}"
+    def mixinCompatibilityLevel = "JAVA_${targetJavaVersion}"
+
+    def extractFabricApiTask = tasks.register("extractMc${taskSuffix}FabricApi", Copy) {
+        from({ zipTree(findFabricApiJar(target.instanceName)) }) {
+            include "META-INF/jars/*.jar"
+            eachFile { details ->
+                details.relativePath = new org.gradle.api.file.RelativePath(true, details.file.name)
+            }
+            includeEmptyDirs = false
+        }
+        into extractedFabricApiDir
+    }
+
+    def compileTask = tasks.register("compileMc${taskSuffix}Java", JavaCompile) {
+        dependsOn extractFabricApiTask
+        source = fileTree("src/${sourceDir}/java") {
+            include "**/*.java"
+        }
+        destinationDirectory = classesDir
+        classpath = files(namedMinecraftJar == null ? minecraftClientJar : namedMinecraftJar, fabricLoaderJar) +
+                files({ findFabricApiJar(target.instanceName) }) +
+                files({
+                    def sodiumJar = findOptionalTargetModJar(target, "sodium*.jar*")
+                    return sodiumJar == null ? [] : [sodiumJar]
+                }) +
+                files({
+                    def modMenuJar = findOptionalTargetModJar(target, "modmenu*.jar*")
+                    return modMenuJar == null ? [] : [modMenuJar]
+                }) +
+                files({
+                    def waystonesJar = findOptionalTargetModJar(target, "waystones*.jar*")
+                    return waystonesJar == null ? [] : [waystonesJar]
+                }) +
+                files({
+                    def balmJar = findOptionalTargetModJar(target, "balm*.jar*")
+                    return balmJar == null ? [] : [balmJar]
+                }) +
+                files({
+                    def shogiJar = findOptionalTargetModJar(target, "shogi*.jar*")
+                    return shogiJar == null ? [] : [shogiJar]
+                }) +
+                fileTree(file("${prismRoot}/instances/test${target.instanceName}/minecraft/mods")) {
+                    include "waystones*.jar*"
+                    include "balm*.jar*"
+                    include "shogi*.jar*"
+                } +
+                fileTree(extractedFabricApiDir) {
+                    include "*.jar"
+                } +
+                prismLibraries
+        javaCompiler = javaToolchains.compilerFor {
+            languageVersion = JavaLanguageVersion.of(25)
+        }
+        options.release = targetJavaVersion
+        options.encoding = "UTF-8"
+        doFirst {
+            if (namedMinecraftJar == null && !minecraftClientJar.isFile()) {
+                throw new GradleException("Missing Minecraft client jar: ${minecraftClientJar}")
+            }
+            if (!fabricLoaderJar.isFile()) {
+                throw new GradleException("Missing Fabric Loader jar: ${fabricLoaderJar}")
+            }
+        }
+    }
+
+    def processResourcesTask = tasks.register("processMc${taskSuffix}Resources", Copy) {
+        duplicatesStrategy = org.gradle.api.file.DuplicatesStrategy.EXCLUDE
+        inputs.property "version", targetVersion
+        inputs.property "minecraft_version", minecraftVersion
+        inputs.property "loader_version", targetLoaderVersion
+        inputs.property "java_version", targetJavaVersion
+        inputs.property "mixin_compatibility_level", mixinCompatibilityLevel
+        filteringCharset "UTF-8"
+
+        from("src/${sourceDir}/resources") {
+            filesMatching("fabric.mod.json") {
+                expand(
+                        "version": targetVersion,
+                        "minecraft_version": minecraftVersion,
+                        "loader_version": targetLoaderVersion,
+                        "java_version": targetJavaVersion,
+                        "mixin_compatibility_level": mixinCompatibilityLevel
+                )
+            }
+            filesMatching("gtalike_teleport.mixins.json") {
+                expand(
+                        "version": targetVersion,
+                        "minecraft_version": minecraftVersion,
+                        "loader_version": targetLoaderVersion,
+                        "java_version": targetJavaVersion,
+                        "mixin_compatibility_level": mixinCompatibilityLevel
+                )
+            }
+        }
+        from("src/main/resources/assets") {
+            into "assets"
+        }
+        into resourcesDir
+    }
+
+    def jarTask = tasks.register("jarMc${taskSuffix}", Jar) {
+        dependsOn compileTask, processResourcesTask
+        archiveBaseName.set(project.archives_base_name)
+        archiveVersion.set(targetVersion)
+        destinationDirectory.set(layout.buildDirectory.dir("libs"))
+        from(classesDir)
+        from(resourcesDir)
+        from("LICENSE") {
+            rename { "${it}_${project.base.archivesName.get()}" }
+        }
+    }
+
+    tasks.register("buildMc${taskSuffix}") {
+        group = "build"
+        description = "Builds Grand Teleport for Minecraft ${minecraftVersion}."
+        dependsOn jarTask
+    }
+
+    versionedJarTasks.add(jarTask)
+    if (target.includeInAggregates && isTargetAvailable(target)) {
+        availableJarTasks.add(jarTask)
+    }
+    if (target.includeInAggregates && minecraftVersion.startsWith("26.")) {
+        mc26JarTasks.add(jarTask)
+    }
+}
+
+tasks.register("jarMc1_21_11") {
+    group = "build"
+    description = "Builds the Loom-backed Grand Teleport jar for Minecraft 1.21.11."
+    dependsOn tasks.named("remapJar")
+}
+
+tasks.register("buildMc1_21_11") {
+    group = "build"
+    description = "Builds Grand Teleport for Minecraft 1.21.11 through the main Loom source set."
+    dependsOn tasks.named("remapJar")
+}
+tasks.register("buildMcAll") {
+    group = "build"
+    description = "Builds Grand Teleport for every configured Minecraft target. Missing local instances will fail this task."
+    dependsOn versionedJarTasks
+}
+
+tasks.register("buildMcAvailable") {
+    group = "build"
+    description = "Builds Grand Teleport for configured Minecraft targets that are available in this PrismLauncher environment."
+    dependsOn availableJarTasks
+}
+
+tasks.register("buildMc26All") {
+    group = "build"
+    description = "Builds Grand Teleport for validated Minecraft 26.x targets: 26.1, 26.1.1, and 26.1.2."
+    dependsOn mc26JarTasks
+}
+
+tasks.named("build") {
+    dependsOn availableJarTasks
+}
+
+processResources {
+    duplicatesStrategy = org.gradle.api.file.DuplicatesStrategy.EXCLUDE
+    inputs.property "version", project.version
+    inputs.property "minecraft_version", activeMinecraftVersion
+    inputs.property "loader_version", activeLoaderVersion
+    inputs.property "java_version", activeLoomJavaVersion
+    inputs.property "mixin_compatibility_level", "JAVA_${activeLoomJavaVersion}"
+    filteringCharset "UTF-8"
+
+    filesMatching("fabric.mod.json") {
+        expand(
+                "version": project.version,
+                "minecraft_version": activeMinecraftVersion,
+                "loader_version": activeLoaderVersion,
+                "java_version": activeLoomJavaVersion,
+                "mixin_compatibility_level": "JAVA_${activeLoomJavaVersion}"
+        )
+    }
+    filesMatching("gtalike_teleport.mixins.json") {
+        expand(
+                "version": project.version,
+                "minecraft_version": activeMinecraftVersion,
+                "loader_version": activeLoaderVersion,
+                "java_version": activeLoomJavaVersion,
+                "mixin_compatibility_level": "JAVA_${activeLoomJavaVersion}"
+        )
+    }
+    from("src/main/resources/assets") {
+        into "assets"
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    if (!it.name.startsWith("compileMc")) {
+        it.options.release = activeLoomJavaVersion
+    }
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.toVersion(activeLoomJavaVersion)
+    targetCompatibility = JavaVersion.toVersion(activeLoomJavaVersion)
+}
+
+jar {
+    from("LICENSE") {
+        rename { "${it}_${project.base.archivesName.get()}" }
+    }
+}
+
+publishing {
+    publications {
+        create("mavenJava", MavenPublication) {
+            artifactId = project.archives_base_name
+            from components.java
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
